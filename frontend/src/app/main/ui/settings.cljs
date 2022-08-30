@@ -29,6 +29,7 @@
   (let [section (get-in route [:data :name])
         profile (mf/deref refs/profile)
         locale  (mf/deref i18n/locale)]
+
     [:section.dashboard-layout
      [:& sidebar {:profile profile
                   :locale locale
