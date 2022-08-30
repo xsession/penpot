@@ -64,10 +64,14 @@
    :app.migrations/all
    {:main (ig/ref :app.migrations/migrations)}
 
+   :app.redis/redis
+   {:uri     (cf/get :redis-uri)
+    :metrics (ig/ref :app.metrics/metrics)}
+
    :app.msgbus/msgbus
    {:backend   (cf/get :msgbus-backend :redis)
     :executor  (ig/ref [::default :app.worker/executor])
-    :redis-uri (cf/get :redis-uri)}
+    :redis     (ig/ref :app.redis/redis)}
 
    :app.storage.tmp/cleaner
    {:executor (ig/ref [::worker :app.worker/executor])
@@ -220,6 +224,7 @@
     :storage     (ig/ref :app.storage/storage)
     :msgbus      (ig/ref :app.msgbus/msgbus)
     :public-uri  (cf/get :public-uri)
+    :redis       (ig/ref :app.redis/redis)
     :audit       (ig/ref :app.loggers.audit/collector)
     :ldap        (ig/ref :app.auth.ldap/provider)
     :http-client (ig/ref :app.http/client)

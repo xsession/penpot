@@ -83,16 +83,17 @@
    ;; a server prop key where initial project is stored.
    :initial-project-skey "initial-project"})
 
+(s/def ::default-rate-limit ::us/vector-of-strings)
 
 (s/def ::media-max-file-size ::us/integer)
 
-(s/def ::flags ::us/vec-of-valid-keywords)
+(s/def ::flags ::us/vector-of-keywords)
 (s/def ::telemetry-enabled ::us/boolean)
 
 (s/def ::audit-log-archive-uri ::us/string)
 (s/def ::audit-log-gc-max-age ::dt/duration)
 
-(s/def ::admins ::us/set-of-non-empty-strings)
+(s/def ::admins ::us/set-of-strings)
 (s/def ::file-change-snapshot-every ::us/integer)
 (s/def ::file-change-snapshot-timeout ::dt/duration)
 
@@ -131,8 +132,8 @@
 (s/def ::oidc-token-uri ::us/string)
 (s/def ::oidc-auth-uri ::us/string)
 (s/def ::oidc-user-uri ::us/string)
-(s/def ::oidc-scopes ::us/set-of-non-empty-strings)
-(s/def ::oidc-roles ::us/set-of-non-empty-strings)
+(s/def ::oidc-scopes ::us/set-of-strings)
+(s/def ::oidc-roles ::us/set-of-strings)
 (s/def ::oidc-roles-attr ::us/keyword)
 (s/def ::oidc-email-attr ::us/keyword)
 (s/def ::oidc-name-attr ::us/keyword)
@@ -165,11 +166,11 @@
 (s/def ::profile-complaint-threshold ::us/integer)
 (s/def ::public-uri ::us/string)
 (s/def ::redis-uri ::us/string)
-(s/def ::registration-domain-whitelist ::us/set-of-non-empty-strings)
-(s/def ::rlimit-font ::us/integer)
-(s/def ::rlimit-file-update ::us/integer)
-(s/def ::rlimit-image ::us/integer)
-(s/def ::rlimit-password ::us/integer)
+(s/def ::registration-domain-whitelist ::us/set-of-strings)
+(s/def ::rpc-semaphore-permits-font ::us/integer)
+(s/def ::rpc-semaphore-permits-file-update ::us/integer)
+(s/def ::rpc-semaphore-permits-image ::us/integer)
+(s/def ::rpc-semaphore-permits-password ::us/integer)
 (s/def ::smtp-default-from ::us/string)
 (s/def ::smtp-default-reply-to ::us/string)
 (s/def ::smtp-host ::us/string)
@@ -217,6 +218,7 @@
                    ::database-min-pool-size
                    ::database-max-pool-size
                    ::default-blob-version
+                   ::default-rate-limit
                    ::error-report-webhook
                    ::default-executor-parallelism
                    ::blocking-executor-parallelism
@@ -272,10 +274,10 @@
                    ::public-uri
                    ::redis-uri
                    ::registration-domain-whitelist
-                   ::rlimit-font
-                   ::rlimit-file-update
-                   ::rlimit-image
-                   ::rlimit-password
+                   ::rpc-semaphore-permits-font
+                   ::rpc-semaphore-permits-file-update
+                   ::rpc-semaphore-permits-image
+                   ::rpc-semaphore-permits-password
                    ::sentry-dsn
                    ::sentry-debug
                    ::sentry-attach-stack-trace
