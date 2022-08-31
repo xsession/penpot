@@ -295,9 +295,6 @@
    {:pool (ig/ref :app.db/pool)
     :key  (cf/get :secret-key)}
 
-   ;; :app.setup/keys
-   ;; {:props (ig/ref :app.setup/props)}
-
    :app.loggers.zmq/receiver
    {:endpoint (cf/get :loggers-zmq-uri)}
 

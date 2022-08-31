@@ -49,6 +49,7 @@
    [app.common.logging :as l]
    [app.common.spec :as us]
    [app.common.uri :as uri]
+   [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.http :as-alias http]
    [app.loggers.audit :refer [parse-client-ip]]
@@ -88,7 +89,7 @@
 
 (s/def ::strategy (s/and ::us/keyword #{:window :bucket}))
 
-(s/def ::limit-as-vector
+(s/def ::limit-definition
   (s/tuple ::us/keyword ::strategy string?))
 
 (defmulti parse-limit   (fn [[_ strategy _]] strategy))
@@ -96,7 +97,7 @@
 
 (defmethod parse-limit :window
   [[name strategy opts :as vlimit]]
-  (us/assert! ::limit-as-vector vlimit)
+  (us/assert! ::limit-definition vlimit)
   (merge
    {::name name
     ::strategy strategy}
@@ -117,7 +118,7 @@
 
 (defmethod parse-limit :bucket
   [[name strategy opts :as vlimit]]
-  (us/assert! ::limit-as-vector vlimit)
+  (us/assert! ::limit-definition vlimit)
   (merge
    {::name name
     ::strategy strategy}
@@ -209,7 +210,7 @@
 (defn- parse-limits
   [service limits]
   (let [default (some->> (cf/get :default-rate-limit)
-                         (us/conform ::limit-as-vector))
+                         (us/conform ::limit-definition))
 
         limits  (cond->> limits
                   (some? default) (cons default))]
@@ -246,7 +247,8 @@
                  (contains? cf/flags :soft-rpc-rate-limit)))
       (fn [cfg {:keys [::http/request] :as params}]
         (let [user-id (or (:profile-id params)
-                          (parse-client-ip request))
+                          (some-> request parse-client-ip)
+                          uuid/zero)
 
               rresp   (when (and user-id @enabled?)
                         (let [redis (redis/get-or-connect redis ::rlimit default-options)
