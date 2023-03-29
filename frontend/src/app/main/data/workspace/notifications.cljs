@@ -257,5 +257,4 @@
     ptk/WatchEvent
     (watch [_ state _]
       (when (contains? (:workspace-libraries state) file-id)
-        (rx/of (dwl/ext-library-changed file-id modified-at revn changes)
-               (dwl/notify-sync-file file-id))))))
+        (rx/of (dwl/notify-sync-file file-id))))))

@@ -757,7 +757,7 @@
                                   {:file-id file-id
                                    :library-id library-id})))
             (when (and (seq (:redo-changes library-changes))
-                       sync-components?)
+                       (or sync-components? sync-colors? sync-typographies?))
               (rx/of (sync-file-2nd-stage file-id library-id asset-id))))))))))
 
 (defn- sync-file-2nd-stage
@@ -803,6 +803,40 @@
       (rp/cmd! :ignore-file-library-sync-status
                {:file-id (get-in state [:workspace-file :id])
                 :date (dt/now)}))))
+
+(defn update-library-sync
+  [file-id modified-at revn changes]
+  (ptk/reify ::update-library-sync
+    ;; ptk/UpdateEvent
+    ;; (update [_ state]
+    ;;   (d/update-when state :message assoc :status :hide))
+
+    ptk/WatchEvent
+    (watch [_ _ stream]
+      (rx/of (ext-library-changed file-id modified-at revn changes)))))
+
+(defn notify-sync-library
+  [file-id modified-at revn changes]
+  (us/assert ::us/uuid file-id)
+  (us/assert ::us/number revn)
+  (ptk/reify ::notify-sync-library
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [libraries-need-sync (filter #(> (:modified-at %) (:synced-at %))
+                                        (vals (get state :workspace-libraries)))
+            do-update #(do (st/emit! (update-library-sync file-id modified-at revn changes))
+                           (st/emit! dm/hide))
+            do-dismiss #(do (st/emit! ignore-sync)
+                            (st/emit! dm/hide))]
+
+        (rx/of (dm/info-dialog
+                (tr "workspace.updates.there-are-updates")
+                :inline-actions
+                [{:label (tr "workspace.updates.update")
+                  :callback do-update}
+                 {:label (tr "workspace.updates.dismiss")
+                  :callback do-dismiss}]
+                :sync-dialog))))))
 
 (defn notify-sync-file
   [file-id]
