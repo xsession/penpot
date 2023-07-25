@@ -136,7 +136,7 @@
   [file-id file-revn changes pending-commits]
   (log/debug :hint "persist changes" :changes (count changes))
   (dm/assert! (uuid? file-id))
-  (ptk/reify ::persist-changes
+  #_(ptk/reify ::persist-changes
     ptk/WatchEvent
     (watch [_ state _]
       (let [;; this features set does not includes the ffeat/enabled

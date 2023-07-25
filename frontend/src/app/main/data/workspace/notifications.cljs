@@ -199,7 +199,9 @@
 (defn handle-file-change
   [{:keys [file-id changes] :as msg}]
   (dm/assert! (sm/valid? schema:handle-file-change msg))
-  (ptk/reify ::handle-file-change
+
+  ;; FIXME
+  #_(ptk/reify ::handle-file-change
     IDeref
     (-deref [_] {:changes changes})
 
