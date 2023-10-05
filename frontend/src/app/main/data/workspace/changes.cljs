@@ -271,6 +271,7 @@
                     (assoc :stack-undo? stack-undo?)
                     (assoc :save-undo? save-undo?)
                     (assoc :file-id file-id)
+                    ;; FIXME: maybe move this to handle 100% on the persistence layer ??
                     (assoc :file-revn (resolve-file-revn state file-id))
                     (assoc :affected-frames frames)
                     (update :undo-changes vec)

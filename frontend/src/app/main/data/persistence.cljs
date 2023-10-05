@@ -97,9 +97,9 @@
 ;;           (rx/of (shapes-changes-persisted file-id entry)))))))
 
 
-(defn- run-persistence
+(defn- run-persistence-task
   []
-  (ptk/reify ::run-persistence
+  (ptk/reify ::run-persistence-task
     ptk/WatchEvent
     (watch [_ state stream]
       (let [{:keys [queue index]} (:persistence state)]
@@ -113,9 +113,9 @@
                      (rx/take 1)
                      (rx/mapcat (fn [_]
                                   (rx/of (discard-commit commit-id)
-                                         (run-persistence))))))
+                                         (run-persistence-task))))))
                (rx/take-until
-                (rx/filter (ptk/type? ::run-persistence) stream)))
+                (rx/filter (ptk/type? ::run-persistence-task) stream)))
           (do
             (reset! running false)
             nil))))))
@@ -136,7 +136,7 @@
     ptk/WatchEvent
     (watch [_ state stream]
       (when (compare-and-set! running false true)
-        (rx/of (run-persistence))))))
+        (rx/of (run-persistence-task))))))
 
 
 (defn initialize-persistence

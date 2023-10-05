@@ -343,31 +343,18 @@
               (dcm/retrieve-comment-threads file-id)
               (fetch-bundle project-id file-id))
 
-       (let [stoper (rx/filter (ptk/type? ::finalize-file) stream)]
-         (rx/merge
-          (->> stream
-               (rx/filter (ptk/type? ::dp/commint-persisted))
-               (rx/map deref)
-               (rx/map dwth/update-thumbnails)
-               (rx/take-until stoper))
-
-          ;; FIXME: add buffering (?)
-          (->> stream
-               (rx/filter dch/commit-changes?)
-               (rx/tap #(prn "commit-changes" %))
-               (rx/map deref)
-               (rx/map dch/update-indexes)
-               (rx/take-until stoper))
-
-          #_(->> stream
-               (rx/filter (ptk/type? ::dp/file-revn-updated))
-               (rx/map deref)
-               (rx/map update-file-revn)
-               (rx/take-until stoper))))))
+       ;; FIXME: add buffering (?)
+       (->> stream
+            (rx/filter dch/commit-changes?)
+            (rx/tap #(prn "commit-changes" %))
+            (rx/map deref)
+            (rx/map dch/update-indexes)
+            (rx/take-until
+             (rx/filter (ptk/type? ::finalize-file) stream)))))
 
     ptk/EffectEvent
     (effect [_ _ _]
-      (let [name (str "workspace-" file-id)]
+      (let [name (dm/str "workspace-" file-id)]
         (unchecked-set ug/global "name" name)))))
 
 (defn finalize-file
