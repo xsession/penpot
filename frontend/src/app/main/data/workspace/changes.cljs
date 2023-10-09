@@ -49,7 +49,7 @@
 
     (cond-> changes add-undo-group? (assoc :undo-group undo-group))))
 
-(def commit-changes? (ptk/type? ::commit-changes*))
+(def commit? (ptk/type? ::commit))
 
 (defn update-shapes
   ([ids update-fn] (update-shapes ids update-fn nil))
@@ -171,32 +171,32 @@
                                        :changes changes})))
              (rx/ignore))))))
 
-(defn- changed-frames
-  "Extracts the frame-ids changed in the given changes"
-  [changes objects]
+;; (defn- changed-frames
+;;   "Extracts the frame-ids changed in the given changes"
+;;   [changes objects]
 
-  (let [change->ids
-        (fn [change]
-          (case (:type change)
-            :add-obj
-            [(:parent-id change)]
+;;   (let [change->ids
+;;         (fn [change]
+;;           (case (:type change)
+;;             :add-obj
+;;             [(:parent-id change)]
 
-            (:mod-obj :del-obj)
-            [(:id change)]
+;;             (:mod-obj :del-obj)
+;;             [(:id change)]
 
-            :mov-objects
-            (d/concat-vec (:shapes change) [(:parent-id change)])
+;;             :mov-objects
+;;             (d/concat-vec (:shapes change) [(:parent-id change)])
 
-            []))]
-    (into #{}
-          (comp (mapcat change->ids)
-                (keep #(cph/get-shape-id-root-frame objects %))
-                (remove #(= uuid/zero %)))
-          changes)))
+;;             []))]
+;;     (into #{}
+;;           (comp (mapcat change->ids)
+;;                 (keep #(cph/get-shape-id-root-frame objects %))
+;;                 (remove #(= uuid/zero %)))
+;;           changes)))
 
-(defn commit-changes*
-  [{:keys [commit-id redo-changes undo-changes origin save-undo? affected-frames
-           file-id file-revn page-id undo-group tags stack-undo?]}]
+(defn commit
+  [{:keys [commit-id redo-changes undo-changes origin save-undo? #_affected-frames
+           file-id file-revn page-id undo-group tags stack-undo? source]}]
 
   (dm/assert!
    "expect valid vector of changes"
@@ -206,18 +206,20 @@
   (let [commit-id (or commit-id (uuid/next))
         commit    {:id commit-id
                    :created-at (dt/now)
+                   :source (d/nilv :local source)
                    :origin (ptk/type origin)
                    :file-id file-id
                    :file-revn file-revn
                    :changes redo-changes
+                   :redo-changes redo-changes
                    :undo-changes undo-changes
-                   :frames affected-frames
+                   ;; :frames affected-frames
                    :save-undo? save-undo?
                    :undo-group undo-group
                    :tags tags
                    :stack-undo? stack-undo?}]
 
-    (ptk/reify ::commit-changes*
+    (ptk/reify ::commit
       cljs.core/IDeref
       (-deref [_] commit)
 
@@ -260,11 +262,13 @@
   (ptk/reify ::commit-changes
     ptk/WatchEvent
     (watch [_ state _]
-      (rx/concat
-       ;; PROCESS CHANGES
-       (let [frames  (changed-frames redo-changes (wsh/lookup-page-objects state))
-             file-id (or file-id (:current-file-id state))]
+      (let [;; FIXME: :fire: looks unused right now
+            ;; frames  (changed-frames redo-changes (wsh/lookup-page-objects state))
+            file-id (or file-id (:current-file-id state))
+            uchg    (vec undo-changes)
+            rchg    (vec redo-changes)]
 
+        (rx/merge
          (rx/of (-> params
                     (assoc :undo-group undo-group)
                     (assoc :tags tags)
@@ -273,15 +277,16 @@
                     (assoc :file-id file-id)
                     ;; FIXME: maybe move this to handle 100% on the persistence layer ??
                     (assoc :file-revn (resolve-file-revn state file-id))
-                    (assoc :affected-frames frames)
-                    (update :undo-changes vec)
-                    (update :redo-changes vec)
-                    (commit-changes*))))
+                    ;; FIXME: :fire: looks unnused right now
+                    ;; (assoc :affected-frames frames)
+                    (assoc :undo-changes uchg)
+                    (assoc :redo-changes rchg)
+                    (commit)))
 
-       ;; PROCESS UNDO
-       (when (and save-undo? (seq undo-changes))
-         (let [entry {:undo-changes undo-changes
-                      :redo-changes redo-changes
-                      :undo-group undo-group
-                      :tags tags}]
-           (rx/of (dwu/append-undo entry stack-undo?))))))))
+         ;; PROCESS UNDO
+         (when (and save-undo? (seq undo-changes))
+           (let [entry {:undo-changes uchg
+                        :redo-changes rchg
+                        :undo-group undo-group
+                        :tags tags}]
+             (rx/of (dwu/append-undo entry stack-undo?)))))))))

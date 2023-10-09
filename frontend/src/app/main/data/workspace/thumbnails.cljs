@@ -207,7 +207,7 @@
             (->> (rx/merge
                   ;; LOCAL CHANGES
                   (->> stream
-                       (rx/filter dch/commit-changes?)
+                       (rx/filter dch/commit?)
                        (rx/observe-on :async)
                        (rx/with-latest-from workspace-data-s)
                        (rx/flat-map (partial extract-frame-changes page-id))
@@ -256,21 +256,3 @@
                              (update-thumbnail file-id page-id frame-id)))))
 
              (rx/take-until stopper-s))))))
-
-;;               (->> frame-changes-s
-;;                    (rx/filter (fn [[page-id _]] (= page-id (:current-page-id @st/state))))
-;;                    (rx/map (fn [[_ frame-id]] (ptk/data-event ::force-render frame-id)))))
-;;              (rx/take-until stopper))))))
-
-;; (defn update-thumbnails
-;;   [{:keys [file-id changes]}]
-;;   (ptk/reify ::update-thumbnails
-;;     ptk/WatchEvent
-;;     (watch [_ state _]
-;;       (let [updates (-> (group-by :page-id changes)
-;;                         (update-vals #(into #{} (mapcat :frames) %)))]
-
-;;         (->> (rx/from updates)
-;;              (rx/mapcat (fn [[page-id frames]]
-;;                           (->> frames (map #(vector page-id %)))))
-;;              (rx/map (fn [[page-id frame-id]] (update-thumbnail file-id page-id frame-id))))))))

@@ -305,20 +305,6 @@
              (rx/map (partial bundle-fetched features))
              (rx/take-until stoper))))))
 
-;; FIXME: maybe this should be localized in the workspace.persistence ns????
-
-;; (defn- update-file-revn
-;;   [{:keys [file-id revn]}]
-;;   (ptk/reify ::update-file-revn
-;;     ptk/UpdateEvent
-;;     (update [_ state]
-;;       (log/debug :hint "update-file-revn" :file-id file-id :revn revn)
-;;       (if-let [current-file-id (:current-file-id state)]
-;;         (if (= file-id current-file-id)
-;;           (update-in state [:workspace-file :revn] max revn)
-;;           (d/update-in-when state [:workspace-libraries file-id :revn] max revn))
-;;         state))))
-
 (defn initialize-file
   [project-id file-id]
   (dm/assert! (uuid? project-id))
@@ -345,8 +331,7 @@
 
        ;; FIXME: add buffering (?)
        (->> stream
-            (rx/filter dch/commit-changes?)
-            (rx/tap #(prn "commit-changes" %))
+            (rx/filter dch/commit?)
             (rx/map deref)
             (rx/map dch/update-indexes)
             (rx/take-until

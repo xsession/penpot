@@ -41,6 +41,22 @@
                      (pop queue)
                      (throw (ex-info "invalid state" {}))))))))
 
+(defn- update-file-revn
+  [file-id revn]
+  (ptk/reify ::update-file-revn
+    ptk/UpdateEvent
+    (update [_ state]
+      (log/debug :hint "update-file-revn" :file-id file-id :revn revn)
+      (if-let [current-file-id (:current-file-id state)]
+        (if (= file-id current-file-id)
+          (update-in state [:workspace-file :revn] max revn)
+          (d/update-in-when state [:workspace-libraries file-id :revn] max revn))
+        state))
+
+    ptk/EffectEvent
+    (effect [_ _ _]
+      (swap! revn-data update file-id (fnil max 0) revn))))
+
 (defn persist-commit
   [commit-id]
   (ptk/reify ::persist-commit
@@ -68,11 +84,11 @@
           (->> (rp/cmd! :update-file params)
                (rx/mapcat (fn [{:keys [revn lagged] :as response}]
                             (log/debug :hint "changes persisted" :commit-id commit-id :lagged (count lagged))
-                            (swap! revn-data update file-id (fnil max revn) (:revn response))
+                            ;; (swap! revn-data update file-id (fnil max revn) (:revn response))
 
                             ;; FIXME: handle lagged here
                             (rx/of (ptk/data-event ::commit-persisted commit)
-                                   #_(ptk/data-event ::file-revn-updated {:file-id file-id :revn revn}))))
+                                   (update-file-revn file-id revn))))
 
                (rx/catch (fn [cause]
                            (rx/concat
@@ -80,21 +96,6 @@
                               (rx/empty)
                               (rx/of (rt/assign-exception cause)))
                             (rx/throw cause))))))))))
-
-
-;; #_(if (seq lagged)
-;;   (rx/of (apply-changes-locally file-id lagged))
-;;   (rx/empty))
-
-;; #_(rx/merge
-;;  (->> (rx/from (concat lagged commits))
-;;       (rx/merge-map
-;;        (fn [{:keys [changes] :as entry}]
-;;          (rx/merge
-;;           (rx/from
-;;            (for [[page-id changes] (group-by :page-id changes)]
-;;              (dch/update-indices page-id changes)))
-;;           (rx/of (shapes-changes-persisted file-id entry)))))))
 
 
 (defn- run-persistence-task
@@ -111,6 +112,7 @@
                      (rx/map deref)
                      (rx/filter #(= commit-id (:id %)))
                      (rx/take 1)
+                     (rx/observe-on :async)
                      (rx/mapcat (fn [_]
                                   (rx/of (discard-commit commit-id)
                                          (run-persistence-task))))))
@@ -138,6 +140,18 @@
       (when (compare-and-set! running false true)
         (rx/of (run-persistence-task))))))
 
+(defn merge-commit
+  [buffer]
+  (->> (rx/from (group-by :file-id buffer))
+       (rx/map (fn [[file-id [item :as commits]]]
+                 (let [uchg (into [] (mapcat :undo-changes) buffer)
+                       rchg (into [] (mapcat :changes) buffer)]
+                   {:id (:id item)
+                    :undo-changes uchg
+                    :changes rchg
+                    :file-id file-id
+                    :origin (:origin item)
+                    :created-at (:created-at item)})))))
 
 (defn initialize-persistence
   []
@@ -145,60 +159,40 @@
     ptk/WatchEvent
     (watch [_ _ stream]
       (log/debug :hint "initialize persistence")
-      (let [stoper (rx/filter (ptk/type? ::initialize-persistence) stream)]
-        (->> stream
-             (rx/filter dch/commit-changes?)
-             (rx/map deref)
-             (rx/filter (complement empty?))
-             (rx/map append-commit)
-             (rx/take-until (rx/delay 100 stoper))
-             (rx/finalize (fn []
-                            (log/debug :hint "finalize persistence: changes watcher"))))))))
+      (let [stoper-s (rx/filter (ptk/type? ::initialize-persistence) stream)
+
+            commits-s
+            (->> stream
+                 (rx/filter dch/commit?)
+                 (rx/map deref)
+                 (rx/filter #(= :local (:source %)))
+                 (rx/filter (complement empty?))
+                 (rx/share))
+
+            notifier-s
+            (->> commits-s
+                 (rx/debounce 2000)
+                 (rx/tap #(log/trc :hint "persistence beat")))]
 
 
+        (rx/merge
+         ;; Here we watch for local commits, buffer them in a small
+         ;; chunks (very near in time commits) and append them to the
+         ;; persistence queue
+         (->> commits-s
+              (rx/buffer-until notifier-s)
+              (rx/mapcat merge-commit)
+              (rx/map append-commit)
+              (rx/take-until (rx/delay 100 stoper-s))
+              (rx/finalize (fn []
+                             (log/debug :hint "finalize persistence: changes watcher"))))
 
-
-;; (defn apply-changes-locally
-;;   [file-id {:keys [revn changes]}]
-;;   (dm/assert! (uuid? file-id))
-;;   (dm/assert! (int? revn))
-;;   (dm/assert! (cpc/valid-changes? changes))
-
-;;   #_(ptk/reify ::applly-changes-locally
-;;     ptk/UpdateEvent
-;;     (update [_ state]
-;;       ;; NOTE: we don't set the file features context here because
-;;       ;; there are no useful context for code that need to be executed
-;;       ;; on the frontend side
-
-;;       (if-let [current-file-id (:current-file-id state)]
-;;         (if (= file-id current-file-id)
-;;           (let [changes (group-by :page-id changes)]
-;;             (-> state
-;;                 (update-in [:workspace-file :revn] max revn)
-;;                 (update :workspace-data (fn [file]
-;;                                           (loop [fdata file
-;;                                                  entries (seq changes)]
-;;                                             (if-let [[page-id changes] (first entries)]
-;;                                               (recur (-> fdata
-;;                                                          (cp/process-changes changes)
-;;                                                          (ctst/update-object-indices page-id))
-;;                                                      (rest entries))
-;;                                               fdata))))))
-;;           (-> state
-;;               (d/update-in-when [:workspace-libraries file-id :revn] max revn)
-;;               (d/update-in-when [:workspace-libraries file-id :data] cp/process-changes changes)))
-
-;;         state))
-
-;;     ptk/WatchEvent
-;;     (watch [_ state stream]
-;;       (->> (rx/from lagged)
-;;            (rx/merge-map
-;;             (fn [{:keys [changes] :as entry}]
-;;               (rx/merge
-;;                (rx/from
-;;                 (for [[page-id changes] (group-by :page-id changes)]
-;;                   (dch/update-indices page-id changes)))
-;;                (rx/of (shapes-changes-persisted file-id entry)))))))))
-
+         ;; Here we track all incoming remote commits for maintain
+         ;; updated the local state with the file revn
+         (->> stream
+              (rx/filter dch/commit?)
+              (rx/map deref)
+              (rx/filter #(= :remote (:source %)))
+              (rx/map (fn [{:keys [file-id file-revn]}]
+                            (update-file-revn file-id file-revn)))
+              (rx/take-until stoper-s)))))))
