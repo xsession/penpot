@@ -832,6 +832,8 @@
 ;; String Functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; FIXME: why they a repetated here instead reuse cuerdas?
+
 (def stylize-re1 (re-pattern "(?u)(\\p{Lu}+[\\p{Ll}\\u0027\\p{Ps}\\p{Pe}]*)"))
 (def stylize-re2 (re-pattern "(?u)[^\\p{L}\\p{N}\\u0027\\p{Ps}\\p{Pe}\\?!]+"))
 
@@ -871,6 +873,35 @@
   accepts strings and keywords"
   [s]
   (stylize s str/lower "-"))
+
+(def ^:const trail-zeros-regex-1 #"\.0+$")
+(def ^:const trail-zeros-regex-2 #"(\.\d*[^0])0+$")
+
+;; FIXME: perf
+(defn format-precision
+  "Creates a number with predetermined precision and then removes the trailing 0.
+  Examples:
+    12.0123, 0 => 12
+    12.0123, 1 => 12
+    12.0123, 2 => 12.01"
+  [num precision]
+
+  (try
+    (if (number? num)
+      (let [num-str #?(:cljs (.toFixed num precision)
+                       :clj  (String/format (str "%." precision "f") num))
+
+            ;; Remove all trailing zeros after the comma 100.00000
+            num-str (str/replace num-str trail-zeros-regex-1 "")
+
+            ;; Remove trailing zeros after a decimal number: 0.001|00|
+            num-str (if-let [m (re-find trail-zeros-regex-2 num-str)]
+                      (str/replace num-str (first m) (second m))
+                      num-str)]
+        num-str)
+      (str num))
+    (catch #?(:clj Throwable :cljs :default) _
+      (str num))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Util protocols
