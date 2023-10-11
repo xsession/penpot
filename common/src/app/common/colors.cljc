@@ -284,6 +284,12 @@
     (catch #?(:clj Throwable :cljs :default) _cause
       [0 0 0])))
 
+(defn int->hex
+  "Convert integer to hex string"
+  [v]
+  #?(:clj  (Integer/toHexString v)
+     :cljs (.toString v 16)))
+
 (defn rgb->hex
   [[r g b]]
   (let [r (int r)
@@ -298,8 +304,8 @@
 
         ;; FIXME: add cljs variant here
         (if (< r 16)
-          (str "#" (subs (Integer/toHexString (bit-or 0x1000000 rgb)) 1))
-          (str "#" (Integer/toHexString rgb)))))))
+          (str "#" (subs (int->hex (bit-or 0x1000000 rgb)) 1))
+          (str "#" (int->hex rgb)))))))
 
 (defn rgb->hsl
   [[r g b]]

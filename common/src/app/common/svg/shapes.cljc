@@ -5,6 +5,7 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.common.svg.shapes
+  "A SVG to Shapes builder."
   (:require
    [app.common.colors :as clr]
    [app.common.data :as d]
@@ -28,18 +29,6 @@
 
 (def default-rect
   {:x 0 :y 0 :width 1 :height 1})
-
-(defn- assert-valid-num [attr num]
-  (dm/verify!
-   ["%1 attribute has invalid value: %2" (d/name attr) num]
-   (and (d/num? num)
-        (<= num max-safe-int)
-        (>= num min-safe-int)))
-
-  (cond
-    (and (> num 0) (< num 1))    1
-    (and (< num 0) (> num -1))  -1
-    :else                       num))
 
 (defn- assert-valid-num [attr num]
   (dm/verify!
