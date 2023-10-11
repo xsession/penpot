@@ -182,23 +182,18 @@
    "yellow" "#ffff00"
    "yellowgreen" "#9acd32"})
 
-(defn hex?
-  [v]
-  (and (string? v)
-       (re-seq #"^#[0-9A-Fa-f]{6}$" v)))
-
 (def ^:private hex-color-re
   #"\#[0-9a-fA-F]{3,6}")
 
 (def ^:private rgb-color-re
   #"(?:|rgb)\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)")
 
-;; FIXME: rename to proper name
 (defn valid-hex-color?
   [color]
-  (some? (re-matches hex-color-re color)))
+  (and (string? color)
+       (some? (re-matches hex-color-re color))))
 
-(defn parse-rgb-color
+(defn parse-rgb
   [color]
   (let [result (re-matches rgb-color-re color)]
     (when (some? result)
@@ -210,8 +205,10 @@
 
 (defn valid-rgb-color?
   [color]
-  (let [result (parse-rgb-color color)]
-    (some? result)))
+  (if (string? color)
+    (let [result (parse-rgb color)]
+      (some? result))
+    false))
 
 (defn- normalize-hex
   [color]
@@ -229,23 +226,26 @@
 
 (defn rgb->hsv
   [[red green blue]]
-  (let [max   (d/max red green blue)
-        min   (d/min red green blue)
-        value max]
+  (let [max (d/max red green blue)
+        min (d/min red green blue)
+        val max]
     (if (= min max)
-      [0 0 value]
-      (loop [delta (- max min)
-             saturation (/ delta max)
-             hue (if (= red max)
-                   (* 60 (/ (- green blue) delta))
-                   (if (= green max)
-                     (+ 2 (* 60 (/ (- blue red) delta)))
-                     (+ 4 (* 60 (/ (- red green) delta)))))]
-        (if (< hue 0)
-          (recur (d/max 0 (+ hue 360)) saturation value)
-          (if (> hue 360)
-            (recur (d/max 0 (- hue 360)) saturation value)
-            [hue saturation value]))))))
+      [0 0 val]
+      (let [delta (- max min)
+            sat   (/ delta max)
+            hue   (if (= red max)
+                    (/ (- green blue) delta)
+                    (if (= green max)
+                      (+ 2 (/ (- blue red) delta))
+                      (+ 4 (/ (- red green) delta))))
+            hue   (* 60 hue)
+            hue   (if (< hue 0)
+                    (+ hue 360)
+                    hue)
+            hue   (if (> hue 360)
+                    (- hue 360)
+                    hue)]
+        [hue sat val]))))
 
 (defn hsv->rgb
   [[h s brightness]]
@@ -343,16 +343,20 @@
   (let [precision 2
         rounded-s (* 100 (d/format-precision s precision))
         rounded-l (* 100 (d/format-precision l precision))]
-    ;; (str/fmt "%s, %s%, %s%, %s" h rounded-s rounded-l a)
     (str/concat "" h ", " rounded-s "%, " rounded-l "%, " a)))
 
-(defn hue->rgb
-  [v1 v2 v-h]
-  (let [v-h (if (< v-h 0) (+ v-h 1) (if (> v-h 1) (- v-h 1) v-h))]
+(defn- hue->rgb
+  "Helper for hsl->rgb"
+  [v1 v2 vh]
+  (let [vh (if (< vh 0)
+             (+ vh 1)
+             (if (> vh 1)
+               (- vh 1)
+               vh))]
     (cond
-      (< (* 6 v-h) 1) (+ v1 (* (- v2 v1) (* 6 v-h)))
-      (< (* 2 v-h) 1) v2
-      (< (* 3 v-h) 2) (+ v1 (* (- v2 v1) (- (/ 2 3) v-h) (* 6)))
+      (< (* 6 vh) 1) (+ v1 (* (- v2 v1) 6 vh))
+      (< (* 2 vh) 1) v2
+      (< (* 3 vh) 2) (+ v1 (* (- v2 v1) (- (/ 2 3) vh) 6))
       :else v1)))
 
 (defn hsl->rgb
@@ -362,21 +366,17 @@
         b 0
         norm-h (/ h 360.0)]
     (if (= s 0)
-      (let [gray (* l 255)]
-        [gray gray gray])
-      (let [temp1 0
-            temp2 0
-            temp1 (if (< l 0.5)
-                    (* 2 l)
-                    (- (+ l s) (* s l)))
-            temp2 (if (< l 0.5)
+      (let [o (* l 255)]
+        [o o o])
+      (let [temp2 (if (< l 0.5)
                     (* l (+ 1 s))
-                    (- l (* s l))
-                    )]
-        (let [r (int (* 255 (hue->rgb temp1 temp2 (+ norm-h (/ 1 3)))))
-              g (int (* 255 (hue->rgb temp1 temp2 norm-h)))
-              b (int (* 255 (hue->rgb temp1 temp2 (- norm-h (/ 1 3)))))]
-          [r g b])))))
+                    (- (+ l s)
+                       (* s l)))
+            temp1 (- (* l 2) temp2)]
+
+        [(mth/round (* 255 (hue->rgb temp1 temp2 (+ norm-h (/ 1 3)))))
+         (mth/round (* 255 (hue->rgb temp1 temp2 norm-h)))
+         (mth/round (* 255 (hue->rgb temp1 temp2 (- norm-h (/ 1 3)))))]))))
 
 (defn hsl->hex
   [v]
@@ -436,7 +436,7 @@
   (when (string? color)
     (if (valid-hex-color? color)
       (normalize-hex color)
-      (let [color (parse-rgb-color color)]
+      (let [color (parse-rgb color)]
         (if (some? color)
           (rgb->hex color)
           (get names (str/lower color)))))))

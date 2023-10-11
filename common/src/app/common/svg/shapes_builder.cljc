@@ -4,7 +4,7 @@
 ;;
 ;; Copyright (c) KALEIDOS INC
 
-(ns app.common.svg.shapes
+(ns app.common.svg.shapes-builder
   "A SVG to Shapes builder."
   (:require
    [app.common.colors :as clr]

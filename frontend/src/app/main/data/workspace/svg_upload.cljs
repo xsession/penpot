@@ -21,7 +21,7 @@
    [app.common.pages.helpers :as cph]
    [app.common.schema :as sm :refer [max-safe-int min-safe-int]]
    [app.common.svg :as csvg]
-   [app.common.svg.shapes :as csvg.shapes]
+   [app.common.svg.shapes-builder :as csvg.shapes-builder]
    [app.common.types.shape :as cts]
    [app.common.types.shape-tree :as ctst]
    [app.main.data.workspace.changes :as dch]
@@ -89,7 +89,7 @@
                                 (:parent-id base))
 
               [new-shape new-children]
-              (csvg.shapes/create-svg-shapes svg-data position objects frame-id parent-id selected true)
+              (csvg.shapes-builder/create-svg-shapes svg-data position objects frame-id parent-id selected true)
 
               changes         (-> (pcb/empty-changes it page-id)
                                   (pcb/with-objects objects)
