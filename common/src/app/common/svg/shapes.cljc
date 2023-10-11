@@ -362,13 +362,13 @@
         color-style (if (= color-style "currentColor") clr/black color-style)]
     (cond-> shape
       ;; Color present as attribute
-      (colors/color? color-attr)
+      (colors/color-string? color-attr)
       (-> (update :svg-attrs dissoc :fill)
           (update-in [:svg-attrs :style] dissoc :fill)
           (assoc-in [:fills 0 :fill-color] (colors/parse color-attr)))
 
       ;; Color present as style
-      (colors/color? color-style)
+      (colors/color-string? color-style)
       (-> (update-in [:svg-attrs :style] dissoc :fill)
           (update :svg-attrs dissoc :fill)
           (assoc-in [:fills 0 :fill-color] (colors/parse color-style)))

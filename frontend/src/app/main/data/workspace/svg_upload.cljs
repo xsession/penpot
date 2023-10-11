@@ -68,7 +68,6 @@
                          (rx/map #(vector (:url uri-data) %)))))
        (rx/reduce (fn [acc [url image]] (assoc acc url image)) {})))
 
-
 (defn add-svg-shapes
   [svg-data position]
   (ptk/reify ::add-svg-shapes

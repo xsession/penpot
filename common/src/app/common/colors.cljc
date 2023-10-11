@@ -9,8 +9,8 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [cuerdas.core :as str]
-   #_[goog.color :as gcolor]))
+   [app.common.math :as mth]
+   [cuerdas.core :as str]))
 
 (def black "#000000")
 (def canvas "#E8E9EA")
@@ -189,6 +189,7 @@
 
 (def ^:private hex-color-re
   #"\#[0-9a-fA-F]{3,6}")
+
 (def ^:private rgb-color-re
   #"(?:|rgb)\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)")
 
@@ -212,28 +213,24 @@
   (let [result (parse-rgb-color color)]
     (some? result)))
 
-(defn normalize-hex
+(defn- normalize-hex
   [color]
-  (if (not (valid-hex-color? color))
-    (throw (ex-info "invalid hex color" {:color color}))
-    (if (= (count color) 4)  ; of the form #RGB
-      (-> color
-          (str/replace #"\#(.)(.)(.)" "#$1$1$2$2$3$3")
-          (str/lower))
-      (str/lower color))))
+  (if (= (count color) 4)  ; of the form #RGB
+    (-> color
+        (str/replace #"\#(.)(.)(.)" "#$1$1$2$2$3$3")
+        (str/lower))
+    (str/lower color)))
 
-;; FIXME: performance
 (defn rgb->str
-  [color]
-  {:pre [(vector? color)]}
-  (if (= (count color) 3)
-    (apply str/format "rgb(%s,%s,%s)" color)
-    (apply str/format "rgba(%s,%s,%s,%s)" color)))
+  [[r g b a]]
+  (if (some? a)
+    (str/ffmt "rgba(%,%,%,%)" r g b a)
+    (str/ffmt "rgb(%,%,%)" r g b)))
 
 (defn rgb->hsv
   [[red green blue]]
-  (let [max (max (max red green) blue)
-        min (min (min red green) blue)
+  (let [max   (d/max red green blue)
+        min   (d/min red green blue)
         value max]
     (if (= min max)
       [0 0 value]
@@ -245,32 +242,28 @@
                      (+ 2 (* 60 (/ (- blue red) delta)))
                      (+ 4 (* 60 (/ (- red green) delta)))))]
         (if (< hue 0)
-          (recur (max 0 (+ hue 360)) saturation value)
+          (recur (d/max 0 (+ hue 360)) saturation value)
           (if (> hue 360)
-            (recur (max 0 (- hue 360)) saturation value)
+            (recur (d/max 0 (- hue 360)) saturation value)
             [hue saturation value]))))))
 
 (defn hsv->rgb
   [[h s brightness]]
-  (let [red 0
-        green 0
-        blue 0]
-    (if (= s 0)
-      [brightness brightness brightness]
-      (let [sextant (Math/floor (/ h 60))
-            remainder (- (/ h 60) sextant)
-            val1   (* brightness (- 1 s))
-            val2   (* brightness (- 1 (* s remainder)))
-            val3   (* brightness (- 1 (* s (- 1 remainder))))
-            result (case sextant
-                     1 [val2 brightness val1]
-                     2 [val1 brightness val3]
-                     3 [val1 val2 brightness]
-                     4 [val3 val1 brightness]
-                     5 [brightness val1 val2]
-                     6 [brightness val3 val1]
-                     0 [brightness val3 val1])]
-        (mapv int result)))))
+  (if (= s 0)
+    [brightness brightness brightness]
+    (let [sextant   (mth/floor (/ h 60))
+          remainder (- (/ h 60) sextant)
+          val1      (int (* brightness (- 1 s)))
+          val2      (int (* brightness (- 1 (* s remainder))))
+          val3      (int (* brightness (- 1 (* s (- 1 remainder)))))]
+      (case sextant
+        1 [val2 brightness val1]
+        2 [val1 brightness val3]
+        3 [val1 val2 brightness]
+        4 [val3 val1 brightness]
+        5 [brightness val1 val2]
+        6 [brightness val3 val1]
+        0 [brightness val3 val1]))))
 
 (defn hex->rgb
   [color]
@@ -284,7 +277,7 @@
     (catch #?(:clj Throwable :cljs :default) _cause
       [0 0 0])))
 
-(defn int->hex
+(defn- int->hex
   "Convert integer to hex string"
   [v]
   #?(:clj  (Integer/toHexString v)
@@ -301,19 +294,17 @@
       (throw (ex-info "not valid rgb" {:r r :g g :b b}))
       (let [rgb (bit-or (bit-shift-left r 16)
                         (bit-shift-left g 8) b)]
-
-        ;; FIXME: add cljs variant here
         (if (< r 16)
-          (str "#" (subs (int->hex (bit-or 0x1000000 rgb)) 1))
-          (str "#" (int->hex rgb)))))))
+          (dm/str "#" (subs (int->hex (bit-or 0x1000000 rgb)) 1))
+          (dm/str "#" (int->hex rgb)))))))
 
 (defn rgb->hsl
   [[r g b]]
   (let [norm-r (/ r 255.0)
         norm-g (/ g 255.0)
         norm-b (/ b 255.0)
-        max    (max norm-r norm-g norm-b)
-        min    (min norm-r norm-g norm-b)
+        max    (d/max norm-r norm-g norm-b)
+        min    (d/min norm-r norm-g norm-b)
         l      (/ (+ max min) 2.0)]
     (let [h (if (= max min) 0
                 (if (= max norm-r)
@@ -352,12 +343,8 @@
   (let [precision 2
         rounded-s (* 100 (d/format-precision s precision))
         rounded-l (* 100 (d/format-precision l precision))]
-
-    (str/fmt "%s, %s%, %s%, %s" h rounded-s rounded-l a)))
-
-;; (defn hsl->rgb
-;;   [[h s l]]
-;;   (gcolor/hslToRgb h s l))
+    ;; (str/fmt "%s, %s%, %s%, %s" h rounded-s rounded-l a)
+    (str/concat "" h ", " rounded-s "%, " rounded-l "%, " a)))
 
 (defn hue->rgb
   [v1 v2 v-h]
@@ -399,11 +386,6 @@
   [hsl]
   (-> hsl hsl->rgb rgb->hsv))
 
-;; NOTE i dont know how this works because it does not exists on google closure
-;; (defn hsl->hsv
-;;   [[h s l]]
-;;   (gcolor/hslToHsv h s l))
-
 (defn hsv->hex
   [hsv]
   (-> hsv hsv->rgb rgb->hex))
@@ -416,16 +398,16 @@
   [v]
   (cond
     (re-matches #"^[0-9A-Fa-f]$" v)
-    (str v v v v v v)
+    (dm/str v v v v v v)
 
     (re-matches #"^[0-9A-Fa-f]{2}$" v)
-    (str v v v)
+    (dm/str v v v)
 
     (re-matches #"^[0-9A-Fa-f]{3}$" v)
     (let [a (nth v 0)
           b (nth v 1)
           c (nth v 2)]
-      (str a a b b c c))
+      (dm/str a a b b c c))
 
     :else
     v))
@@ -434,7 +416,7 @@
   [color]
   (if (= "#" (subs color 0 1))
     color
-    (str "#" color)))
+    (dm/str "#" color)))
 
 (defn remove-hash
   [color]
@@ -442,58 +424,7 @@
     (subs color 1)
     color))
 
-(defn gradient->css [{:keys [type stops]}]
-  (let [parse-stop
-        (fn [{:keys [offset color opacity]}]
-          (let [[r g b] (hex->rgb color)]
-            (str/fmt "rgba(%s, %s, %s, %s) %s" r g b opacity (str (* offset 100) "%"))))
-
-        stops-css (str/join "," (map parse-stop stops))]
-
-    (if (= type :linear)
-      (str/fmt "linear-gradient(to bottom, %s)" stops-css)
-      (str/fmt "radial-gradient(circle, %s)" stops-css))))
-
-;; TODO: REMOVE `VALUE` WHEN COLOR IS INTEGRATED
-(defn color->background [{:keys [color opacity gradient value]}]
-  (let [color (or color value)
-        opacity (or opacity 1)]
-    (cond
-      (and gradient (not= :multiple gradient))
-      (gradient->css gradient)
-
-      (not= color :multiple)
-      (let [[r g b] (hex->rgb (or color value))]
-        (str/fmt "rgba(%s, %s, %s, %s)" r g b opacity))
-
-      :else "transparent")))
-
-(defn color->format->background [{:keys [color opacity gradient]} format]
-  (let [opacity (or opacity 1)]
-    (cond
-      (and gradient (not= :multiple gradient))
-      (gradient->css gradient)
-
-      (not= color :multiple)
-      (case format
-        :rgba (let [[r g b] (hex->rgb color)]
-               (str/fmt "rgba(%s, %s, %s, %s)" r g b opacity))
-
-        :hsla (let [[h s l] (hex->hsl color)]
-                (str/fmt "hsla(%s, %s, %s, %s)" h (* 100 s) (* 100 l) opacity))
-
-        :hex (str color (str/upper (d/opacity-to-hex opacity))))
-
-      :else "transparent")))
-
-(defn multiple? [{:keys [id file-id value color gradient]}]
-  (or (= value :multiple)
-      (= color :multiple)
-      (= gradient :multiple)
-      (= id :multiple)
-      (= file-id :multiple)))
-
-(defn color?
+(defn color-string?
   [color]
   (and (string? color)
        (or (valid-hex-color? color)
@@ -502,12 +433,13 @@
 
 (defn parse
   [color]
-  (if (valid-hex-color? color)
-    (str/lower color)
-    (let [color (parse-rgb-color color)]
-      (if (some? color)
-        (rgb->hex color)
-        (get names (str/lower color))))))
+  (when (string? color)
+    (if (valid-hex-color? color)
+      (normalize-hex color)
+      (let [color (parse-rgb-color color)]
+        (if (some? color)
+          (rgb->hex color)
+          (get names (str/lower color)))))))
 
 (def color-names
   (into [] (keys names)))

@@ -11,7 +11,7 @@
    [app.common.geom.shapes.path :as upg]
    [app.common.path.commands :as upc]
    [app.common.svg :as csvg]
-   #_[app.util.path.arc-to-curve :refer [a2c]]
+   [app.common.math :as mth]
    [cuerdas.core :as str]))
 ;;
 (def commands-regex #"(?i)[mzlhvcsqta][^mzlhvcsqta]*")
@@ -22,7 +22,8 @@
 
 (def flag-regex #"[01]")
 
-(defn extract-params [cmd-str extract-commands]
+(defn extract-params
+  [cmd-str extract-commands]
   (loop [result []
          extract-idx 0
          current {}
@@ -178,6 +179,105 @@
      :c2x (:x cp2)
      :c2y (:y cp2)}))
 
+(defn- unit-vector-angle
+  [ux uy vx vy]
+  (let [sign (if (> 0 (- (* ux vy) (* uy vx))) -1 1)
+        dot  (+ (* ux vx) (* uy vy))
+        dot  (cond
+               (> dot 1.0)   1.0
+               (< dot -1.0) -1.0
+               :else         dot)]
+    (* sign (mth/acos dot))))
+
+(defn- get-arc-center [x1 y1 x2 y2 fa fs rx ry sin-phi cos-phi]
+  (let [x1p      (+ (* cos-phi (/ (- x1 x2) 2)) (* sin-phi (/ (- y1 y2) 2)))
+        y1p      (+ (* (- sin-phi) (/ (- x1 x2) 2)) (* cos-phi (/ (- y1 y2) 2)))
+        rx-sq    (* rx rx)
+        ry-sq    (* ry ry)
+        x1p-sq   (* x1p x1p)
+        y1p-sq   (* y1p y1p)
+        radicant (- (* rx-sq ry-sq)
+                    (* rx-sq y1p-sq)
+                    (* ry-sq x1p-sq))
+        radicant (if (< radicant 0) 0 radicant)
+        radicant (/ radicant (+ (* rx-sq y1p-sq) (* ry-sq x1p-sq)))
+        radicant (* (mth/sqrt radicant) (if (= fa fs) -1 1))
+
+        cxp      (* radicant (/ rx ry) y1p)
+        cyp      (* radicant (/ (- ry) rx) x1p)
+        cx       (+ (- (* cos-phi cxp)
+                       (* sin-phi cyp))
+                    (/ (+ x1 x2) 2))
+        cy       (+ (* sin-phi cxp)
+                    (* cos-phi cyp)
+                    (/ (+ y1 y2) 2))
+
+        v1x      (/ (- x1p cxp) rx)
+        v1y      (/ (- y1p cyp) ry)
+        v2x      (/ (- (- x1p) cxp) rx)
+        v2y      (/ (- (- y1p) cyp) ry)
+        theta1   (unit-vector-angle 1 0 v1x v1y)
+
+        dtheta (unit-vector-angle v1x v1y v2x v2y)
+        dtheta (if (and (= fs 0) (> dtheta 0)) (- dtheta (* mth/PI 2)) dtheta)
+        dtheta (if (and (= fs 1) (< dtheta 0)) (+ dtheta (* mth/PI 2)) dtheta)]
+
+    [cx cy theta1 dtheta]))
+
+(defn approximate-unit-arc
+  [theta1 dtheta]
+  (let [alpha (* (/ 4 3) (mth/tan (/ dtheta 4)))
+        x1 (mth/cos theta1)
+        y1 (mth/sin theta1)
+        x2 (mth/cos (+ theta1 dtheta))
+        y2 (mth/sin (+ theta1 dtheta))]
+    [x1 y1 (- x1 (* y1 alpha)) (+ y1 (* x1 alpha)) (+ x2 (* y2 alpha)) (- y2 (* x2 alpha)) x2 y2]))
+
+(defn- process-curve
+  [curve cc rx ry sin-phi cos-phi]
+  (reduce (fn [curve i]
+            (let [x  (nth curve i)
+                  y  (nth curve (inc i))
+                  x  (* x rx)
+                  y  (* y ry)
+                  xp (- (* cos-phi x) (* sin-phi y))
+                  yp (+ (* sin-phi x) (* cos-phi y))]
+              (-> curve
+                  (assoc i (+ xp (nth cc 0)))
+                  (assoc (inc i) (+ yp (nth cc 1))))))
+          curve
+          (range (count curve) 2)))
+
+(defn arc->beziers*
+  [x1 y1 x2 y2 fa fs rx ry phi]
+  (let [sin-phi (mth/sin (* phi (/ mth/PI 180)))
+        cos-phi  (mth/cos (* phi (/ mth/PI 180)))
+        x1p      (+ (* cos-phi (/ (- x1 x2) 2)) (* sin-phi (/ (- y1 y2) 2)))
+        y1p      (+ (* (- sin-phi) (/ (- x1 x2) 2)) (* cos-phi (/ (- y1 y2) 2)))
+
+        rx       (mth/abs rx)
+        ry       (mth/abs ry)
+        lambda   (+ (/ (* x1p x1p) (* rx rx))
+                    (/ (* y1p y1p) (* ry ry)))
+        rx       (if (> lambda 1) (* rx (mth/sqrt lambda)) rx)
+        ry       (if (> lambda 1) (* ry (mth/sqrt lambda)) ry)
+        cc       (get-arc-center x1 y1 x2 y2 fa fs rx ry sin-phi cos-phi)
+        theta1   (nth cc 2)
+        dtheta   (nth cc 3)
+        segments (mth/max (mth/ceil (/ (mth/abs dtheta) (/ mth/PI 2))) 1)
+        dtheta   (/ dtheta segments)]
+
+    (loop [i 0
+           t theta1
+           r []]
+      (if (< i segments)
+        (let [curve (approximate-unit-arc t dtheta)
+              curve (process-curve curve cc rx ry sin-phi cos-phi)]
+          (recur (inc i)
+                 (+ t dtheta)
+                 (conj r curve)))
+        r))))
+
 (defn arc->beziers [from-p command]
   (let [to-command
         (fn [[_ _ c1x c1y c2x c2y x y]]
@@ -189,8 +289,7 @@
 
         {from-x :x from-y :y} from-p
         {:keys [rx ry x-axis-rotation large-arc-flag sweep-flag x y]} (:params command)
-        ;; FIXME
-        result [] #_(a2c from-x from-y x y large-arc-flag sweep-flag rx ry x-axis-rotation)]
+        result (arc->beziers* from-x from-y x y large-arc-flag sweep-flag rx ry x-axis-rotation)]
     (mapv to-command result)))
 
 (defn simplify-commands
