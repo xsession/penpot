@@ -291,9 +291,10 @@
 
 (defn create-profile-rels!
   [conn {:keys [id] :as profile}]
-  (let [team (teams/create-team conn {:profile-id id
-                                      :name "Default"
-                                      :is-default true})]
+  (let [team (teams/create-team conn
+                                {:profile-id id
+                                 :name "Default"
+                                 :is-default true})]
     (-> (db/update! conn :profile
                     {:default-team-id (:id team)
                      :default-project-id  (:default-project-id team)}
