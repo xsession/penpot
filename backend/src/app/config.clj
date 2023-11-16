@@ -333,6 +333,7 @@
    :enable-backend-openapi-doc
    :enable-backend-worker
    :enable-secure-session-cookies
+   :enable-feature-components-v2
    :enable-email-verification])
 
 (defn- parse-flags

@@ -34,10 +34,6 @@
   [s value]
   (m/explain s value {:registry sr/default-registry}))
 
-(defn explain-data
-  [s value]
-  (mu/explain-data s value {:registry sr/default-registry}))
-
 (defn schema?
   [o]
   (m/schema? o))
@@ -147,6 +143,24 @@
   [s transformer]
   (let [vfn (delay (decoder s transformer))]
     (fn [v] (@vfn v))))
+
+(defn define
+  [s]
+  (let [s (schema s)]
+    {::schema s
+     ::validator (lazy-validator s)
+     ::explainer (lazy-explainer s)
+     ::decoder   (lazy-decoder s default-transformer)}))
+
+(defn conform!
+  [schema params]
+  (assert (::schema schema) "expected a properly defined schema map")
+  (let [params ((::decoder schema) params)]
+    (when-not ((::validator schema) params)
+      (throw (ex-info "conform error" {:type :validation
+                                       :code :params-validation
+                                       ::explain ((::explainer schema) params)})))
+    params))
 
 (defn humanize-data
   [{:keys [schema errors value]} & {:keys [length level]}]

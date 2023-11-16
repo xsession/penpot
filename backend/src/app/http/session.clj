@@ -20,7 +20,8 @@
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]
    [integrant.core :as ig]
-   [yetti.request :as yrq]))
+   [yetti.request :as yrq]
+   [ring.request :as rreq]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; DEFAULTS
@@ -142,7 +143,7 @@
   (us/assert! ::us/uuid profile-id)
 
   (fn [request response]
-    (let [uagent  (yrq/get-header request "user-agent")
+    (let [uagent  (rreq/get-header request "user-agent")
           params  {:profile-id profile-id
                    :user-agent uagent
                    :created-at (dt/now)}
@@ -209,9 +210,8 @@
                 (l/trace :hint "exception on decoding malformed token" :cause cause)
                 request)))]
 
-    (fn [request respond raise]
-      (let [request (handle-request request)]
-        (handler request respond raise)))))
+    (fn [request]
+      (handler (handle-request request)))))
 
 (defn- wrap-authz
   [handler {:keys [::manager]}]
