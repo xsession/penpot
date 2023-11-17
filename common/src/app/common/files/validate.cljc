@@ -447,7 +447,7 @@
    ;; If `libraries` is provided, this means the fill file
    ;; validation is activated so we proceed to execute the
    ;; validation
-   (when (seq libraries)
+   (when (some? libraries)
      (doseq [page (filter :id (ctpl/pages-seq data))]
        (validate-shape! uuid/zero file page libraries)))
 
