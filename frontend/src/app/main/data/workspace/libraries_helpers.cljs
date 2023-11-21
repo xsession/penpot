@@ -161,7 +161,8 @@
 
          first-shape (cond-> (first new-shapes)
                        (not (nil? parent-id))
-                       (assoc :parent-id parent-id))
+                       (assoc :parent-id parent-id
+                              :frame-id parent-id))
 
          ;; on copy/paste old id is used later to reorder the paster layers
          changes (cond-> (pcb/add-object changes first-shape {:ignore-touched true})
