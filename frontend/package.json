@@ -95,5 +95,6 @@
     "tdigest": "^0.1.2",
     "ua-parser-js": "^1.0.32",
     "xregexp": "^5.1.1"
-  }
+  },
+  "packageManager": "yarn@4.0.2"
 }
