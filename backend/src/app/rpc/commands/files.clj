@@ -822,12 +822,6 @@
   [conn {:keys [id]}]
   (db/delete! conn :file-library-rel {:library-file-id id}))
 
-(defn- set-file-shared!
-  [conn {:keys [id is-shared] :as params}]
-  (db/update! conn :file
-              {:is-shared is-shared}
-              {:id id}))
-
 (def sql:get-referenced-files
   "SELECT f.id
      FROM file_library_rel AS flr
@@ -841,11 +835,12 @@
   into the file local libraries"
   [conn {:keys [id] :as library}]
   (let [ldata (binding [pmap/*load-fn* (partial load-pointer conn id)]
-                (-> library decode-row (process-pointers deref) fmg/migrate-file :data))
+                (-> library (process-pointers deref) :data))
         rows  (db/exec! conn [sql:get-referenced-files id])]
     (doseq [file-id (map :id rows)]
       (binding [pmap/*load-fn* (partial load-pointer conn file-id)
                 pmap/*tracked* (atom {})]
+        ;; FIXME: validate features and version here
         (let [file (-> (db/get-by-id conn :file file-id
                                      ::db/check-deleted? false
                                      ::db/remove-deleted? false)
@@ -860,22 +855,61 @@
                       {:id file-id})
           (persist-pointers! conn file-id))))))
 
-(def ^:private schema:set-file-shared
-  [:map {:title "set-file-shared"}
-   [:id ::sm/uuid]
-   [:is-shared :boolean]])
+(def ^:private
+  schema:set-file-shared
+  (sm/define
+    [:map {:title "set-file-shared"}
+     [:id ::sm/uuid]
+     [:is-shared :boolean]]))
 
 (sv/defmethod ::set-file-shared
   {::doc/added "1.17"
    ::webhooks/event? true
    ::sm/params schema:set-file-shared}
-  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id id is-shared] :as params}]
+  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id id] :as params}]
   (db/with-atomic [conn pool]
     (check-edition-permissions! conn profile-id id)
-    (let [file (set-file-shared! conn params)]
-      (when-not is-shared
-        (absorb-library! conn file)
-        (unlink-files! conn file))
+    (let [file (db/get-by-id conn id {:columns [:id :name :is-shared]})
+          file (cond
+                 (and (true? (:is-shared file))
+                      (false? (:is-shared params)))
+                 ;; When we disable shared flag on an already shared
+                 ;; file, we need to perform more complex operation,
+                 ;; so in this case we retrieve the complete file and
+                 ;; perform all required validations.
+                 (let [file (-> (get-file conn id)
+                                (check-version!)
+                                (assoc :is-shared false))
+                       team (teams/get-team cfg
+                                            :profile-id profile-id
+                                            :project-id (:project-id file)
+                                            :file-id id)]
+
+                   (-> (cfeat/get-team-enabled-features cf/flags team)
+                       (cfeat/check-client-features! (:features params))
+                       (cfeat/check-file-features! (:features file)))
+
+                   (absorb-library! conn file)
+                   (unlink-files! conn file)
+                   (db/update! conn :file
+                               {:is-shared false}
+                               {:id id})
+                   file)
+
+                 (and (false? (:is-shared file))
+                      (true? (:is-shared params)))
+                 (let [file (assoc file :is-shared true)]
+                   (db/update! conn :file
+                               {:is-shared false}
+                               {:id id})
+                   file)
+
+                 :else
+                 (ex/raise :type :validation
+                           :code :invalid-shared-state
+                           :hint "unexpected state found"
+                           :params-is-shared (:is-shared params)
+                           :file-is-shared (:is-shared file)))]
 
       (rph/with-meta
         (select-keys file [:id :name :is-shared])
