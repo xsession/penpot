@@ -38,6 +38,7 @@
    [promesa.exec.csp :as sp]))
 
 (def ^:dynamic *conn* nil)
+(def ^:dynamic *system* nil)
 
 (defn println!
   [& params]
@@ -74,113 +75,119 @@
 (defn reset-file-data!
   "Hardcode replace of the data of one file."
   [system id data]
-  (db/with-atomic [conn (:app.db/pool system)]
-    (db/update! conn :file
-                {:data data}
-                {:id id})))
+  (db/tx-run! system (fn [system]
+                       (db/update! system :file
+                                   {:data data}
+                                   {:id id}))))
 
 (defn get-file
   "Get the migrated data of one file."
   [system id]
-  (db/with-atomic [conn (:app.db/pool system)]
-    (binding [pmap/*load-fn* (partial files/load-pointer conn id)]
-      (-> (db/get-by-id conn :file id)
-          (update :data blob/decode)
-          (update :data pmg/migrate-data)
-          (files/process-pointers deref)))))
+  (db/run! system
+           (fn [{:keys [::db/conn]}]
+             (binding [pmap/*load-fn* (partial files/load-pointer conn id)]
+               (-> (files/get-file conn)
+                   (files/process-pointers deref))))))
 
 (defn update-file!
   "Apply a function to the data of one file. Optionally save the changes or not.
   The function receives the decoded and migrated file data."
-  [system & {:keys [update-fn id save? migrate? inc-revn?]
-             :or {save? false migrate? true inc-revn? true}}]
-  (db/with-atomic [conn (:app.db/pool system)]
-    (let [file (-> (db/get-by-id conn :file id {::db/for-update? true})
-                   (update :features db/decode-pgarray #{}))]
-      (binding [*conn* conn
-                pmap/*tracked* (atom {})
-                pmap/*load-fn* (partial files/load-pointer conn id)
-                cfeat/*wrap-with-pointer-map-fn*
-                (if (contains? (:features file) "fdata/pointer-map") pmap/wrap identity)
-                cfeat/*wrap-with-objects-map-fn*
-                (if (contains? (:features file) "fdata/objectd-map") omap/wrap identity)]
-        (let [file (-> file
-                       (update :data blob/decode)
-                       (cond-> migrate? (update :data pmg/migrate-data))
-                       (update-fn)
-                       (cond-> inc-revn? (update :revn inc)))]
-          (when save?
-            (let [features (db/create-array conn "text" (:features file))
+  [system & {:keys [update-fn id rollback? migrate? inc-revn?]
+             :or {rollback? true false migrate? true inc-revn? true}}]
+  (letfn [(process-file []
+            (let [file     (files/get-file *conn* id :migrate? migrate?)
+                  file     (cond-> (update-fn file)
+                             inc-revn? (update :revn inc))
+                  features (db/create-array conn "text" (:features file))
                   data     (blob/encode (:data file))]
+
               (db/update! conn :file
                           {:data data
                            :revn (:revn file)
                            :features features}
-                          {:id id})
+                          {:id id}))
 
-              (when (contains? (:features file) "fdata/pointer-map")
-                (files/persist-pointers! conn id))))
+            (when (contains? (:features file) "fdata/pointer-map")
+              (files/persist-pointers! conn id))
 
-          (dissoc file :data))))))
+            (dissoc file :data))]
+    (db/tx-run! system
+                (fn [{:keys [::db/conn] :as system}]
+                  (binding [*conn* conn
+                            *system* system
+                            pmap/*tracked* (atom {})
+                            pmap/*load-fn* (partial files/load-pointer conn id)
+                            cfeat/*wrap-with-pointer-map-fn*
+                            (if (contains? (:features file) "fdata/pointer-map") pmap/wrap identity)
+                            cfeat/*wrap-with-objects-map-fn*
+                            (if (contains? (:features file) "fdata/objectd-map") omap/wrap identity)]
+                    (try
+                      (process-file)
+                      (finally
+                        (when rollback?
+                          (db/rollback! conn)))))))))
 
-(def ^:private sql:retrieve-files-chunk
-  "SELECT id, name, features, created_at, revn, data FROM file
-    WHERE created_at < ? AND deleted_at is NULL
-    ORDER BY created_at desc LIMIT ?")
 
 (defn analyze-files
   "Apply a function to all files in the database, reading them in
   batches. Do not change data.
 
   The `on-file` parameter should be a function that receives the file
-  and the previous state and returns the new state."
+  and the previous state and returns the new state.
+
+  Emits rollback at the end of operation."
   [system & {:keys [chunk-size max-items start-at on-file on-error on-end on-init with-libraries?]
              :or {chunk-size 10 max-items Long/MAX_VALUE}}]
   (letfn [(get-chunk [conn cursor]
-            (let [rows (db/exec! conn [sql:retrieve-files-chunk cursor chunk-size])]
-              [(some->> rows peek :created-at) (seq rows)]))
+            (let [sql  (str "SELECT id, created_at FROM file "
+                            " WHERE created_at < ? AND deleted_at is NULL "
+                            " ORDER BY created_at desc LIMIT ?")
+                  rows (db/exec! conn [sql cursor chunk-size])]
+              [(some->> rows peek :created-at) (map :id rows)]))
 
           (get-candidates [conn]
             (->> (d/iteration (partial get-chunk conn)
                               :vf second
                               :kf first
                               :initk (or start-at (dt/now)))
-                 (take max-items)
-                 (map #(-> %
-                           (update :data blob/decode)
-                           (update :features db/decode-pgarray #{})))))
+                 (take max-items)))
 
           (on-error* [cause file]
             (println "unexpected exception happened on processing file: " (:id file))
-            (strace/print-stack-trace cause))]
+            (strace/print-stack-trace cause))
 
-    (when (fn? on-init) (on-init))
+          (process-file [file-id]
+            (let [file (binding [pmap/*load-fn* (partial files/load-pointer *conn* file-id)]
+                         (-> (files/get-file *conn* file-id)
+                             (files/process-pointers deref)))
 
-    (db/with-atomic [conn (:app.db/pool system)]
-      (doseq [file (get-candidates conn)]
-        (binding [*conn* conn
-                  pmap/*tracked* (atom {})
-                  pmap/*load-fn* (partial files/load-pointer conn (:id file))
-                  cfeat/*wrap-with-pointer-map-fn*
-                  (if (contains? (:features file) "fdata/pointer-map") pmap/wrap identity)
-                  cfeat/*wrap-with-objects-map-fn*
-                  (if (contains? (:features file) "fdata/objects-map") omap/wrap identity)]
-          (let [libraries (when with-libraries?
-                            (->> (files/get-file-libraries conn (:id file))
-                                 (into [file] (map (fn [{:keys [id]}]
-                                                     (binding [pmap/*load-fn* (partial files/load-pointer conn id)]
-                                                       (-> (files-update/get-file conn id)
-                                                           (update :data blob/decode)
-                                                           (files/process-pointers deref)))))) ; ensure all pointers resolved
-                                 (d/index-by :id)))]
-            (try
-              (if with-libraries?
-                (on-file file libraries)
-                (on-file file))
-              (catch Throwable cause
-                ((or on-error on-error*) cause file)))))))
+                  libs (when with-libraries?
+                         (->> (files/get-file-libraries *conn* file-id)
+                              (into [file] (map (fn [{:keys [id]}]
+                                                  (binding [pmap/*load-fn* (partial files/load-pointer *conn( id)]
+                                                            (-> (files/get-file conn id)
+                                                                (files/process-pointers deref))))))
+                                (d/index-by :id))))]
+              (try
+                (if with-libraries?
+                  (on-file file libraries)
+                  (on-file file))
+                (catch Throwable cause
+                  ((or on-error on-error*) cause file)))))]
 
-    (when (fn? on-end) (on-end))))
+
+    (db/tx-run! system
+                (fn [{:keys [::db/conn] :as system}]
+                  (try
+                    (binding [*conn* conn *system* system]
+                      (when (fn? on-init) (on-init))
+                      (run! process-file (get-candidates conn)))
+                    (finally
+                      (when (fn? on-end)
+                        (ex/ignoring (on-end)))
+                      (db/rollback! conn)))))))
+
+
 
 (defn process-files!
   "Apply a function to all files in the database, reading them in

@@ -254,7 +254,7 @@
   (cond
     (connection? o) o
     (pool? o)       o
-    (map? o)        (get-connectable (or (:conn o) (::pool o)))
+    (map? o)        (get-connectable (or (::conn o) (::pool o)))
     :else           (ex/raise :type :internal
                               :code :unable-resolve-connectable
                               :hint "expected conn, pool or system")))
@@ -416,10 +416,12 @@
   (.releaseSavepoint conn sp))
 
 (defn rollback!
-  ([^Connection conn]
-   (.rollback conn))
-  ([^Connection conn ^Savepoint sp]
-   (.rollback conn sp)))
+  ([conn]
+   (let [^Connection conn (get-connection conn)]
+     (.rollback conn)))
+  ([conn ^Savepoint sp]
+   (let [^Connection conn (get-connection conn)]
+     (.rollback conn sp))))
 
 (defn tx-run!
   [system f & params]

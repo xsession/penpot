@@ -24,9 +24,9 @@
 
 (defn validate-file
   [file]
-  (let [libs (->> (files/get-file-libraries app.srepl.helpers/*conn* (:id file))
+  (let [libs (->> (files/get-file-libraries h/*conn* (:id file))
                   (cons file)
-                  (map #(files/get-file app.srepl.helpers/*conn* (:id %) (:features file)))
+                  (map #(files/get-file h/*conn* (:id %) (:features file)))
                   (d/index-by :id))
 
         update-page (fn [page]
@@ -106,9 +106,9 @@
      (do
        (println "   This file is not v2")
        file)
-     (let [libs (->> (files/get-file-libraries app.srepl.helpers/*conn* (:id file))
+     (let [libs (->> (files/get-file-libraries h/*conn* (:id file))
                      (cons file)
-                     (map #(files/get-file app.srepl.helpers/*conn* (:id %) (:features file)))
+                     (map #(files/get-file h/*conn* (:id %) (:features file)))
                      (d/index-by :id))
 
            fix-copy-item
