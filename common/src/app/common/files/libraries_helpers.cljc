@@ -68,7 +68,7 @@
                                                        (map :id shapes)
                                                        nil
                                                        root-name
-                                                       true))]
+                                                       false))]
 
             [root changes (map :id shapes)]))
 

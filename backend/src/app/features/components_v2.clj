@@ -225,8 +225,8 @@
                     [shape]
                     (if (ctk/instance-head? shape)
                       (assoc shape
-                             :type :frame           ; Old groups must be converted
-                             :fills []              ; to frames and conform to spec
+                             :type :frame                 ; Old groups must be converted
+                             :fills (or (:fills shape)[]) ; to frames and conform to spec
                              :hide-in-viewer true
                              :rx 0
                              :ry 0)
@@ -323,8 +323,8 @@
                        :component-root true
                        :component-file component-file
                        :component-id component-id
-                       :type :frame           ; Old groups must be converted
-                       :fills []              ; to frames and conform to spec
+                       :type :frame                 ; Old groups must be converted
+                       :fills (or (:fills shape)[]) ; to frames and conform to spec
                        :hide-in-viewer true
                        :rx 0
                        :ry 0)
